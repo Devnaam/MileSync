@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "@google-cloud/storage": "^7.17.3",
-    "@google/generative-ai": "^0.24.1",
+    "@google/genai": "^1.29.0",
     "@hookform/resolvers": "^5.2.2",
     "@prisma/client": "^6.19.0",
     "date-fns": "^4.1.0",

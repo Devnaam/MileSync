@@ -85,8 +85,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ authenticated: false }, { status: 401 });
     }
 
-    // Verify session cookie
-    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, true);
+    // Verify session cookie - checkRevoked: false to allow cached sessions
+    const decodedClaims = await adminAuth.verifySessionCookie(sessionCookie, false);
     const user = await AuthService.getUserByFirebaseUid(decodedClaims.uid);
 
     if (!user) {
@@ -104,9 +104,15 @@ export async function GET(request: NextRequest) {
     });
   } catch (error: any) {
     console.error('Session verification error:', error);
-    return NextResponse.json({ authenticated: false }, { status: 401 });
+    
+    // Clear invalid cookie
+    const response = NextResponse.json({ authenticated: false }, { status: 401 });
+    response.cookies.delete('session');
+    
+    return response;
   }
 }
+
 
 export async function DELETE() {
   const response = NextResponse.json({ success: true });

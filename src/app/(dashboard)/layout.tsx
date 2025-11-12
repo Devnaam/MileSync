@@ -6,6 +6,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { auth } from '@/lib/firebase/config';
 import { signOut } from 'firebase/auth';
+import PageLoader from '@/components/ui/PageLoader';
 
 interface User {
   id: string;
@@ -58,14 +59,7 @@ export default function DashboardLayout({
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-accentBlue mx-auto mb-4"></div>
-          <p className="text-mediumGray">Loading...</p>
-        </div>
-      </div>
-    );
+    return <PageLoader variant="branded" message="Loading your workspace..." />;
   }
 
   if (!user) {
@@ -80,7 +74,10 @@ export default function DashboardLayout({
           <div className="flex justify-between items-center h-16">
             {/* Logo */}
             <Link href="/dashboard" className="flex items-center space-x-2">
-              <span className="text-2xl font-bold text-cream">MileSync</span>
+              <div className="h-8 w-8 rounded-lg bg-accentBlue flex items-center justify-center">
+                <span className="text-white font-bold text-lg">M</span>
+              </div>
+              <span className="text-xl font-bold text-cream">MileSync</span>
             </Link>
 
             {/* Desktop Navigation */}
@@ -168,7 +165,7 @@ export default function DashboardLayout({
   );
 }
 
-// Desktop Nav Link Component
+// Components remain the same
 function NavLink({ href, active, children }: { href: string; active?: boolean; children: React.ReactNode }) {
   return (
     <Link
@@ -182,7 +179,6 @@ function NavLink({ href, active, children }: { href: string; active?: boolean; c
   );
 }
 
-// Mobile Nav Link Component
 function MobileNavLink({ href, onClick, children }: { href: string; onClick: () => void; children: React.ReactNode }) {
   return (
     <Link
