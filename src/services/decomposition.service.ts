@@ -16,24 +16,19 @@ interface DecompositionInput {
 }
 
 export class DecompositionService {
-  /**
-   * Main decomposition function - breaks goal into complete plan
-   */
   static async decomposeGoal(input: DecompositionInput): Promise<GoalPlanStructure> {
     console.log('🎯 Starting goal decomposition for:', input.goalTitle);
 
-    // Calculate timeline structure
     const timeline = this.calculateTimeline(
       input.startDate,
       input.targetDate,
       input.totalDuration
     );
 
-    // Build context from clarification
     const context = this.buildContext(input);
 
-    // Generate plan using AI
-    const plan = await this.generatePlanWithAI(input, timeline, context);
+    // Generate complete plan structure
+    const plan = await this.generateCompletePlan(input, timeline, context);
 
     console.log('✅ Decomposition complete:', {
       months: plan.totalMonths,
@@ -45,9 +40,6 @@ export class DecompositionService {
     return plan;
   }
 
-  /**
-   * Calculate timeline structure (how many months, weeks, days)
-   */
   private static calculateTimeline(startDate: Date, targetDate: Date, totalDays: number) {
     const totalWeeks = Math.ceil(totalDays / 7);
     const totalMonths = Math.ceil(totalDays / 30);
@@ -56,14 +48,11 @@ export class DecompositionService {
       totalDays,
       totalWeeks,
       totalMonths,
-      startDate: startDate.toISOString().split('T')[0],
-      endDate: targetDate.toISOString().split('T')[0],
+      startDate: startDate.toISOString().split('T'),
+      endDate: targetDate.toISOString().split('T'),
     };
   }
 
-  /**
-   * Build context string from clarification responses
-   */
   private static buildContext(input: DecompositionInput): string {
     if (!input.clarificationResponses || input.clarificationResponses.length === 0) {
       return 'No additional context provided.';
@@ -75,98 +64,32 @@ export class DecompositionService {
   }
 
   /**
-   * Generate complete plan using AI
+   * Generate complete plan - AI for structure, programmatic for tasks
    */
-  private static async generatePlanWithAI(
+  private static async generateCompletePlan(
     input: DecompositionInput,
     timeline: any,
     context: string
   ): Promise<GoalPlanStructure> {
-    const prompt = `You are an expert learning path designer. Create a detailed, realistic study plan that breaks down a goal into months, weeks, and daily tasks.
-
-**Goal Information:**
-- Title: ${input.goalTitle}
-- Description: ${input.goalDescription || 'Not provided'}
-- Type: ${input.goalType}
-- Duration: ${input.totalDuration} days (${timeline.totalMonths} months)
-- Daily commitment: ${input.hoursPerDay} hours/day
-- Total hours: ${input.totalDuration * input.hoursPerDay} hours
-- Start date: ${timeline.startDate}
-- End date: ${timeline.endDate}
-
-**User Context:**
-${context}
-
-**Instructions:**
-1. Break the goal into ${timeline.totalMonths} monthly milestones
-2. Each month has ~4 weeks with specific objectives
-3. Each week has 7 days (account for some lighter days)
-4. Each day has 2-4 specific tasks totaling ${input.hoursPerDay} hours
-5. Make tasks concrete and actionable
-6. Progress from fundamentals to advanced
-7. Include practice/project time
-8. Be realistic about what can be learned per day
-
-**Output Format:**
-Return ONLY valid JSON (no markdown, no explanation) in this exact structure:
-
-\`\`\`json
-{
-  "months": [
-    {
-      "monthNumber": 1,
-      "title": "Foundations & Setup",
-      "milestone": "Complete basic understanding",
-      "weeks": [
-        {
-          "weekNumber": 1,
-          "title": "Getting Started",
-          "objective": "Set up environment and learn basics",
-          "days": [
-            {
-              "dayNumber": 1,
-              "title": "Environment Setup",
-              "focus": "Development environment",
-              "tasks": [
-                {
-                  "id": "m1w1d1t1",
-                  "title": "Install tools",
-                  "description": "Install Node.js, VS Code, extensions",
-                  "duration": 0.5,
-                  "resources": ["Official docs"],
-                  "successCriteria": "Environment working",
-                  "completed": false
-                },
-                {
-                  "id": "m1w1d1t2",
-                  "title": "First project",
-                  "description": "Create hello world app",
-                  "duration": 1.5,
-                  "resources": ["Tutorial"],
-                  "successCriteria": "App runs successfully",
-                  "completed": false
-                }
-              ],
-              "totalHours": ${input.hoursPerDay},
-              "completed": false
-            }
-          ]
-        }
-      ]
-    }
-  ]
-}
-\`\`\`
-
-Generate the COMPLETE plan with all ${timeline.totalMonths} months, all weeks, and all days. Be specific and practical.`;
-
     try {
-      const response = await generateJSON<{ months: MonthPlan[] }>(prompt);
+      console.log('🤖 Generating learning path structure...');
 
-      // Build complete plan structure
-      const plan: GoalPlanStructure = {
+      // Ask AI for high-level structure only (lightweight)
+      const structure = await this.generateLearningStructure(input, timeline, context);
+
+      console.log('✅ Structure generated, building detailed plan...');
+
+      // Build detailed plan programmatically
+      const months = this.buildDetailedPlan(
+        structure,
+        input.startDate,
+        input.totalDuration,
+        input.hoursPerDay
+      );
+
+      return {
         goalId: input.goalId,
-        months: this.enrichPlanWithDates(response.months, input.startDate),
+        months,
         totalMonths: timeline.totalMonths,
         totalWeeks: timeline.totalWeeks,
         totalDays: input.totalDuration,
@@ -174,112 +97,107 @@ Generate the COMPLETE plan with all ${timeline.totalMonths} months, all weeks, a
         generatedAt: new Date().toISOString(),
         version: 1,
       };
-
-      return plan;
     } catch (error: any) {
-      console.error('❌ AI plan generation failed:', error);
-      
-      // Fallback: Generate simple plan
-      return this.generateFallbackPlan(input, timeline);
+      console.error('❌ AI generation failed, using smart fallback:', error.message);
+      return this.generateIntelligentFallback(input, timeline);
     }
   }
 
   /**
-   * Add actual dates to the plan structure
+   * Ask AI for learning structure only (small JSON)
    */
-  private static enrichPlanWithDates(months: MonthPlan[], startDate: Date): MonthPlan[] {
-    const currentDate = new Date(startDate);
+  private static async generateLearningStructure(
+    input: DecompositionInput,
+    timeline: any,
+    context: string
+  ) {
+    const prompt = `Create a learning path structure for: "${input.goalTitle}"
 
-    return months.map((month, monthIdx) => {
-      const monthStart = new Date(currentDate);
-      
-      const enrichedWeeks = month.weeks.map((week, weekIdx) => {
-        const weekStart = new Date(currentDate);
-        
-        const enrichedDays = week.days.map((day, dayIdx) => {
-          const dayDate = new Date(currentDate);
-          currentDate.setDate(currentDate.getDate() + 1);
+Type: ${input.goalType}
+Duration: ${input.totalDuration} days (${timeline.totalMonths} months)
+Context: ${context.substring(0, 300)}
 
-          return {
-            ...day,
-            date: dayDate.toISOString().split('T')[0],
-          };
-        });
+Generate ONLY the high-level structure with ${timeline.totalMonths} months and topics.
 
-        const weekEnd = new Date(currentDate);
-        weekEnd.setDate(weekEnd.getDate() - 1);
+Return ONLY this JSON (no markdown):
+{
+  "months": [
+    {
+      "title": "Month 1 Phase Name",
+      "topics": ["Topic 1", "Topic 2", "Topic 3", "Topic 4"]
+    }
+  ]
+}
 
-        return {
-          ...week,
-          startDate: weekStart.toISOString().split('T')[0],
-          endDate: weekEnd.toISOString().split('T')[0],
-          days: enrichedDays,
-          totalHours: enrichedDays.reduce((sum, d) => sum + d.totalHours, 0),
-          completedDays: 0,
-        };
-      });
+Be concise. Each month should have 4-6 topics that progress logically.`;
 
-      const monthEnd = new Date(currentDate);
-      monthEnd.setDate(monthEnd.getDate() - 1);
-
-      return {
-        ...month,
-        monthNumber: monthIdx + 1,
-        startDate: monthStart.toISOString().split('T')[0],
-        endDate: monthEnd.toISOString().split('T')[0],
-        weeks: enrichedWeeks,
-        totalHours: enrichedWeeks.reduce((sum, w) => sum + w.totalHours, 0),
-        completedWeeks: 0,
-      };
-    });
+    return await generateJSON<{
+      months: Array<{ title: string; topics: string[] }>;
+    }>(prompt);
   }
 
   /**
-   * Fallback plan if AI fails
+   * Build detailed plan from AI structure
    */
-  private static generateFallbackPlan(
-    input: DecompositionInput,
-    timeline: any
-  ): GoalPlanStructure {
-    console.log('⚠️ Using fallback plan generation');
-
+  private static buildDetailedPlan(
+    structure: { months: Array<{ title: string; topics: string[] }> },
+    startDate: Date,
+    totalDays: number,
+    hoursPerDay: number
+  ): MonthPlan[] {
     const months: MonthPlan[] = [];
-    const currentDate = new Date(input.startDate);
+    const currentDate = new Date(startDate);
     let dayCounter = 1;
 
-    for (let m = 0; m < timeline.totalMonths; m++) {
+    const daysPerMonth = Math.ceil(totalDays / structure.months.length);
+
+    structure.months.forEach((monthData, monthIdx) => {
+      const monthNumber = monthIdx + 1;
+      const monthStart = new Date(currentDate);
+      const daysInThisMonth = Math.min(daysPerMonth, totalDays - (dayCounter - 1));
+      const weeksInMonth = Math.ceil(daysInThisMonth / 7);
+
+      // Distribute topics across weeks
+      const topicsPerWeek = Math.ceil(monthData.topics.length / weeksInMonth);
       const weeks: WeekPlan[] = [];
-      
-      for (let w = 0; w < 4; w++) {
+
+      for (let w = 0; w < weeksInMonth; w++) {
+        const weekTopics = monthData.topics.slice(
+          w * topicsPerWeek,
+          (w + 1) * topicsPerWeek
+        );
+        const weekStart = new Date(currentDate);
+        const daysInWeek = Math.min(7, daysInThisMonth - (w * 7));
         const days: DayPlan[] = [];
-        
-        for (let d = 0; d < 7; d++) {
-          if (dayCounter > input.totalDuration) break;
+
+        for (let d = 0; d < daysInWeek; d++) {
+          const topic = weekTopics[d % weekTopics.length] || weekTopics;
+          const dayDate = new Date(currentDate);
 
           const tasks: DailyTask[] = [
             {
-              id: `m${m + 1}w${w + 1}d${d + 1}t1`,
-              title: `Main learning task`,
-              description: `Work on ${input.goalTitle} - Phase ${m + 1}`,
-              duration: input.hoursPerDay * 0.7,
+              id: `m${monthNumber}w${w + 1}d${d + 1}t1`,
+              title: `Learn: ${topic}`,
+              description: `Study and understand ${topic} concepts`,
+              duration: hoursPerDay * 0.6,
               completed: false,
             },
             {
-              id: `m${m + 1}w${w + 1}d${d + 1}t2`,
-              title: `Practice & Review`,
-              description: `Practice what you learned`,
-              duration: input.hoursPerDay * 0.3,
+              id: `m${monthNumber}w${w + 1}d${d + 1}t2`,
+              title: `Practice: ${topic}`,
+              description: `Apply ${topic} through exercises and examples`,
+              duration: hoursPerDay * 0.4,
               completed: false,
             },
           ];
 
           days.push({
             dayNumber: dayCounter,
-            date: new Date(currentDate).toISOString().split('T')[0],
-            title: `Day ${dayCounter}`,
-            focus: `Continue learning ${input.goalTitle}`,
+            date: dayDate.toISOString().split('T'),
+            title: `Day ${dayCounter}: ${topic}`,
+            focus: topic,
             tasks,
-            totalHours: input.hoursPerDay,
+            totalHours: hoursPerDay,
             completed: false,
           });
 
@@ -287,29 +205,90 @@ Generate the COMPLETE plan with all ${timeline.totalMonths} months, all weeks, a
           dayCounter++;
         }
 
+        const weekEnd = new Date(currentDate);
+        weekEnd.setDate(weekEnd.getDate() - 1);
+
         weeks.push({
           weekNumber: w + 1,
-          startDate: days[0]?.date || '',
-          endDate: days[days.length - 1]?.date || '',
-          title: `Week ${w + 1}`,
-          objective: `Progress in ${input.goalTitle}`,
+          startDate: weekStart.toISOString().split('T'),
+          endDate: weekEnd.toISOString().split('T'),
+          title: weekTopics.join(' & ') || `Week ${w + 1}`,
+          objective: `Master ${weekTopics[0] || 'core concepts'}`,
           days,
           totalHours: days.reduce((sum, d) => sum + d.totalHours, 0),
           completedDays: 0,
         });
       }
 
+      const monthEnd = new Date(currentDate);
+      monthEnd.setDate(monthEnd.getDate() - 1);
+
       months.push({
-        monthNumber: m + 1,
-        startDate: weeks[0]?.startDate || '',
-        endDate: weeks[weeks.length - 1]?.endDate || '',
-        title: `Month ${m + 1}`,
-        milestone: `Complete phase ${m + 1} of ${input.goalTitle}`,
+        monthNumber,
+        startDate: monthStart.toISOString().split('T'),
+        endDate: monthEnd.toISOString().split('T'),
+        title: monthData.title,
+        milestone: `Complete ${monthData.title}`,
         weeks,
         totalHours: weeks.reduce((sum, w) => sum + w.totalHours, 0),
         completedWeeks: 0,
       });
-    }
+    });
+
+    return months;
+  }
+
+  /**
+   * Intelligent fallback based on goal type
+   */
+  private static generateIntelligentFallback(
+    input: DecompositionInput,
+    timeline: any
+  ): GoalPlanStructure {
+    console.log('⚠️ Using intelligent fallback generation');
+
+    // Smart topic generation based on goal type
+    const topicsByType: Record<GoalType, string[][]> = {
+      SKILL: [
+        ['Fundamentals', 'Basic Concepts', 'Core Principles', 'First Projects'],
+        ['Intermediate Topics', 'Advanced Concepts', 'Real Projects', 'Best Practices'],
+      ],
+      ACADEMIC: [
+        ['Introduction', 'Basic Theory', 'Core Concepts', 'Practice Problems'],
+        ['Advanced Topics', 'Complex Problems', 'Review', 'Final Preparation'],
+      ],
+      FITNESS: [
+        ['Foundation', 'Form & Technique', 'Building Strength', 'Consistency'],
+        ['Progression', 'Advanced Training', 'Peak Performance', 'Maintenance'],
+      ],
+      CAREER: [
+        ['Skills Assessment', 'Core Skills', 'Resume Building', 'Networking'],
+        ['Advanced Skills', 'Projects', 'Interviews', 'Job Search'],
+      ],
+      CREATIVE: [
+        ['Inspiration', 'Basics', 'Technique', 'First Drafts'],
+        ['Refinement', 'Advanced Work', 'Completion', 'Publishing'],
+      ],
+      CUSTOM: [
+        ['Phase 1', 'Phase 2', 'Phase 3', 'Phase 4'],
+        ['Phase 5', 'Phase 6', 'Completion', 'Review'],
+      ],
+    };
+
+    const topics = topicsByType[input.goalType] || topicsByType.CUSTOM;
+    const structure = {
+      months: topics.slice(0, timeline.totalMonths).map((monthTopics, idx) => ({
+        title: `Month ${idx + 1}`,
+        topics: monthTopics,
+      })),
+    };
+
+    const months = this.buildDetailedPlan(
+      structure,
+      input.startDate,
+      input.totalDuration,
+      input.hoursPerDay
+    );
 
     return {
       goalId: input.goalId,

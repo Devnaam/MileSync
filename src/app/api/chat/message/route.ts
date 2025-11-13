@@ -1,4 +1,3 @@
-// src/app/api/chat/message/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth } from '@/lib/firebase/admin';
 import { prisma } from '@/lib/prisma';
@@ -28,7 +27,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Verify goal belongs to user
     const goal = await prisma.goal.findFirst({
       where: { id: goalId, userId: user.id },
     });
@@ -45,11 +43,22 @@ export async function POST(request: NextRequest) {
     // Save user message
     await ChatService.addUserMessage(conversation.id, message);
 
-    // Build context
+    // Get conversation history for context
+    const history = await ChatService.getMessages(conversation.id);
+    const conversationHistory = history.map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+    }));
+
+    // Build goal context
     const goalContext = await ChatService.buildGoalContext(goalId);
 
-    // Generate response (using fallback for now)
-    const aiResponse = ChatService.generateFallbackResponse(message, goalContext);
+    // Generate AI response with full context
+    const aiResponse = await ChatService.generateAIResponse(
+      message,
+      goalContext,
+      conversationHistory
+    );
 
     // Save AI message
     await ChatService.addAssistantMessage(conversation.id, aiResponse);

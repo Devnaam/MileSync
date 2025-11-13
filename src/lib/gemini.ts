@@ -1,26 +1,62 @@
 // src/lib/gemini.ts
-import { GoogleGenAI } from '@google/genai';
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
-if (!process.env.GEMINI_API_KEY) {
-  throw new Error('GEMINI_API_KEY is not defined in environment variables');
+if (!GEMINI_API_KEY) {
+  console.warn('⚠️ GEMINI_API_KEY is not defined in environment variables');
 }
 
-// Initialize the client with API key from environment
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY,
-});
+interface GeminiResponse {
+  candidates?: Array<{
+    content?: {
+      parts?: Array<{
+        text?: string;
+      }>;
+    };
+  }>;
+  error?: {
+    message: string;
+    code: number;
+  };
+}
 
 /**
- * Generate text from prompt
+ * Generate text from prompt using Gemini 2.0 Flash
  */
 export async function generateText(prompt: string): Promise<string> {
+  if (!GEMINI_API_KEY) {
+    throw new Error('Gemini API key not configured');
+  }
+
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
+    const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [{ text: prompt }],
+          },
+        ],
+      }),
     });
 
-    return response.text;
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData?.error?.message || `HTTP ${response.status}`);
+    }
+
+    const data: GeminiResponse = await response.json();
+
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!text) {
+      throw new Error('No text in response');
+    }
+
+    return text;
   } catch (error: any) {
     console.error('Gemini API error:', error);
     throw new Error(`AI generation failed: ${error.message}`);
@@ -32,17 +68,23 @@ export async function generateText(prompt: string): Promise<string> {
  */
 export async function generateJSON<T>(prompt: string): Promise<T> {
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-    });
+    const text = await generateText(prompt);
 
-    const text = response.text;
-    
     // Extract JSON from response (handles markdown code blocks)
-    const jsonMatch = text.match(/``````/) || text.match(/``````/);
-    const jsonText = jsonMatch ? jsonMatch[1] : text;
-    
+    let jsonText = text.trim();
+
+    // Remove markdown code blocks if present
+    const codeBlockMatch = jsonText.match(/``````/);
+    if (codeBlockMatch) {
+      jsonText = codeBlockMatch[1].trim();
+    }
+
+    // Try to find JSON object/array
+    const jsonMatch = jsonText.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+    if (jsonMatch) {
+      jsonText = jsonMatch[1];
+    }
+
     return JSON.parse(jsonText);
   } catch (error: any) {
     console.error('Gemini JSON parsing error:', error);
@@ -51,27 +93,15 @@ export async function generateJSON<T>(prompt: string): Promise<T> {
 }
 
 /**
- * Generate content with streaming (for chat)
+ * Test Gemini API connection
  */
-export async function* generateStream(prompt: string): AsyncGenerator<string> {
+export async function testGeminiAPI(): Promise<boolean> {
   try {
-    const response = await ai.models.generateContentStream({
-      model: 'gemini-2.5-flash',
-      contents: prompt,
-    });
-
-    for await (const chunk of response.stream) {
-      yield chunk.text;
-    }
+    const response = await generateText('Say "Hello, MileSync!" in exactly those words.');
+    console.log('✅ Gemini API test successful:', response);
+    return true;
   } catch (error: any) {
-    console.error('Gemini streaming error:', error);
-    throw new Error(`AI streaming failed: ${error.message}`);
+    console.error('❌ Gemini API test failed:', error.message);
+    return false;
   }
-}
-
-/**
- * Helper: Get model instance for advanced use
- */
-export function getGeminiClient() {
-  return ai;
 }

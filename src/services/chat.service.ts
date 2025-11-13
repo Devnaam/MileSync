@@ -1,12 +1,9 @@
 // src/services/chat.service.ts
 import { prisma } from '@/lib/prisma';
+import { generateText } from '@/lib/gemini';
 
 export class ChatService {
-  /**
-   * Create or get conversation for a goal
-   */
   static async getOrCreateConversation(goalId: string, userId: string) {
-    // Find existing conversation for this goal
     let conversation = await prisma.chatConversation.findFirst({
       where: {
         goalId,
@@ -17,7 +14,6 @@ export class ChatService {
       },
     });
 
-    // Create new conversation if none exists
     if (!conversation) {
       conversation = await prisma.chatConversation.create({
         data: {
@@ -31,9 +27,6 @@ export class ChatService {
     return conversation;
   }
 
-  /**
-   * Get conversation messages
-   */
   static async getMessages(conversationId: string) {
     return await prisma.chatMessage.findMany({
       where: { conversationId },
@@ -41,9 +34,6 @@ export class ChatService {
     });
   }
 
-  /**
-   * Add user message
-   */
   static async addUserMessage(conversationId: string, content: string) {
     const message = await prisma.chatMessage.create({
       data: {
@@ -53,7 +43,6 @@ export class ChatService {
       },
     });
 
-    // Update conversation last message
     await prisma.chatConversation.update({
       where: { id: conversationId },
       data: {
@@ -65,9 +54,6 @@ export class ChatService {
     return message;
   }
 
-  /**
-   * Add assistant message
-   */
   static async addAssistantMessage(conversationId: string, content: string) {
     const message = await prisma.chatMessage.create({
       data: {
@@ -77,7 +63,6 @@ export class ChatService {
       },
     });
 
-    // Update conversation last message
     await prisma.chatConversation.update({
       where: { id: conversationId },
       data: {
@@ -89,9 +74,6 @@ export class ChatService {
     return message;
   }
 
-  /**
-   * Build context for AI from goal data
-   */
   static async buildGoalContext(goalId: string) {
     const goal = await prisma.goal.findUnique({
       where: { id: goalId },
@@ -127,12 +109,59 @@ export class ChatService {
   }
 
   /**
-   * Generate AI response (fallback without Gemini)
+   * Generate AI response using Gemini with conversation history
+   */
+  static async generateAIResponse(
+    userMessage: string,
+    goalContext: string,
+    conversationHistory: Array<{ role: string; content: string }>
+  ): Promise<string> {
+    try {
+      // Build conversation history for context (last 6 messages)
+      const recentHistory = conversationHistory
+        .slice(-6)
+        .map((msg) => `${msg.role === 'USER' ? 'Student' : 'Mentor'}: ${msg.content}`)
+        .join('\n\n');
+
+      const prompt = `You are a supportive AI mentor helping a student achieve their learning goal. Be conversational, encouraging, and provide specific actionable advice.
+
+**${goalContext}**
+
+**Recent Conversation:**
+${recentHistory}
+
+**Student's Current Question:**
+${userMessage}
+
+**Guidelines for your response:**
+1. Acknowledge their specific question or concern
+2. Provide practical, actionable advice
+3. Be encouraging and supportive
+4. Reference their goal progress when relevant
+5. Keep response concise (2-3 paragraphs)
+6. If they ask about next steps, suggest specific tasks from their plan
+7. If stuck, help them break down the problem
+
+**Respond as their mentor:**`;
+
+      console.log('🤖 Calling Gemini API for chat response...');
+      const response = await generateText(prompt);
+      console.log('✅ Gemini API response received');
+
+      return response;
+    } catch (error: any) {
+      console.error('❌ Gemini API failed, using fallback:', error.message);
+      // Fallback to pattern-based response
+      return this.generateFallbackResponse(userMessage, goalContext);
+    }
+  }
+
+  /**
+   * Fallback response when Gemini fails
    */
   static generateFallbackResponse(userMessage: string, goalContext: string): string {
     const lowerMessage = userMessage.toLowerCase();
 
-    // Pattern matching for common queries
     if (lowerMessage.includes('stuck') || lowerMessage.includes('help')) {
       return "I understand you're facing challenges. Here's what I suggest:\n\n1. Break down the current task into smaller steps\n2. Review the resources provided for this topic\n3. Take a short break and come back with fresh perspective\n4. Try explaining what you've learned so far - this often reveals gaps\n\nWhat specific part are you struggling with?";
     }
@@ -141,7 +170,7 @@ export class ChatService {
       return "Don't worry about being behind schedule. Here's a recovery plan:\n\n1. Focus on high-priority tasks first\n2. Consider extending daily hours slightly for a few days\n3. Skip optional exercises if needed\n4. We can adjust the timeline if necessary\n\nRemember: consistency matters more than speed. Would you like me to suggest which tasks to prioritize?";
     }
 
-    if (lowerMessage.includes('next') || lowerMessage.includes('what should')) {
+    if (lowerMessage.includes('next') || lowerMessage.includes('what should') || lowerMessage.includes('focus')) {
       return "Based on your current progress, here's what to focus on next:\n\n1. Complete any pending tasks from today\n2. Review what you've learned so far\n3. Preview tomorrow's topics\n4. Prepare any resources you'll need\n\nCheck your daily guidance on the dashboard for specific tasks!";
     }
 
@@ -157,8 +186,9 @@ export class ChatService {
       return "Hello! 👋 I'm your AI mentor, here to help you achieve your goal.\n\nI can help you with:\n- Understanding your current tasks\n- Providing study strategies\n- Overcoming challenges\n- Staying motivated\n- Adjusting your schedule\n\nWhat would you like to discuss today?";
     }
 
-    // Default response
+    // Default response with goal context
     const progress = Math.round(parseFloat(goalContext.match(/progress: (\d+)%/)?.[1] || '0'));
     return `I'm here to help you achieve your goal! You're currently ${progress}% complete.\n\nYou can ask me about:\n- 📋 Current tasks and priorities\n- 💡 Study strategies and tips\n- 🚧 Overcoming challenges\n- 📅 Adjusting your schedule\n- 📚 Resources and materials\n- 🎯 Setting milestones\n\nWhat would you like to know?`;
   }
 }
+
